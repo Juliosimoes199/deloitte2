@@ -216,6 +216,26 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Entrada do usuário
+     elif event.actions and event.actions.escalate:
+                        response_text = f"Agente escalou: {event.error_message or 'Sem mensagem específica.'}"
+                    break 
+            return response_text
+
+        # Executa a função assíncrona e obtém o resultado
+        response = asyncio.run(run_agent_and_get_response(user_id, session_id, new_user_content))
+
+        # Adiciona a resposta do agente ao histórico do Streamlit
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
+    except Exception as e:
+        st.error(f"Erro ao processar a requisição: {e}")
+        st.session_state.messages.append({"role": "assistant", "content": f"Desculpe, ocorreu um erro: {e}"})
+
+# ... (seu código existente) ...
+
+# Entrada do usuário
 if user_message := st.chat_input("Olá! Como posso ajudar você a gerenciar suas actividades hoje?"):
     # Adiciona a mensagem do usuário ao histórico do Streamlit
     st.session_state.messages.append({"role": "user", "content": user_message})
@@ -228,9 +248,6 @@ if user_message := st.chat_input("Olá! Como posso ajudar você a gerenciar suas
 
     try:
         # Garante que a sessão exista no ADK
-        # O InMemorySessionService manterá o estado da sessão.
-        # Não é ideal tentar criar uma sessão que já existe, mas para InMemorySessionService,
-        # get_session pode ser suficiente para verificar a existência.
         existing_session = asyncio.run(session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id))
         if not existing_session:
             asyncio.run(session_service.create_session(app_name=APP_NAME, user_id=user_id, session_id=session_id))
@@ -245,7 +262,7 @@ if user_message := st.chat_input("Olá! Como posso ajudar você a gerenciar suas
             """
             Executa o agente e retorna a resposta final.
             """
-            response_text = "Agente não produziu uma resposta final." 
+            response_content = None # Pode ser texto ou uma figura
             async for event in adk_runner.run_async(
                 user_id=current_user_id,
                 session_id=current_session_id,
@@ -253,19 +270,28 @@ if user_message := st.chat_input("Olá! Como posso ajudar você a gerenciar suas
             ):
                 if event.is_final_response():
                     if event.content and event.content.parts:
-                        response_text = event.content.parts[0].text
+                        # Se for uma resposta de texto
+                        response_content = event.content.parts[0].text
                     elif event.actions and event.actions.escalate:
-                        response_text = f"Agente escalou: {event.error_message or 'Sem mensagem específica.'}"
-                    break 
-            return response_text
+                        # Se o agente escalou
+                        response_content = f"Agente escalou: {event.error_message or 'Sem mensagem específica.'}"
+                    # Verifique se a resposta é um objeto de figura do Matplotlib
+                    elif event.type == "tool_code_result" and isinstance(event.result, plt.Figure):
+                        response_content = event.result # A ferramenta retornou uma figura
+                    break
+            return response_content
 
         # Executa a função assíncrona e obtém o resultado
         response = asyncio.run(run_agent_and_get_response(user_id, session_id, new_user_content))
 
-        # Adiciona a resposta do agente ao histórico do Streamlit
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        # Adiciona a resposta do agente ao histórico do Streamlit e exibe
         with st.chat_message("assistant"):
-            st.markdown(response)
+            if isinstance(response, plt.Figure):
+                st.pyplot(response) # Exibe a figura se for um objeto Matplotlib
+                st.session_state.messages.append({"role": "assistant", "content": "Gráfico de distribuição de idade gerado:"}) # Mensagem para o histórico
+            else:
+                st.markdown(response) # Exibe o texto se for uma string
+                st.session_state.messages.append({"role": "assistant", "content": response})
 
     except Exception as e:
         st.error(f"Erro ao processar a requisição: {e}")
