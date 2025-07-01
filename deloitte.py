@@ -196,7 +196,7 @@ adk_runner = get_adk_runner(root_agent, APP_NAME, session_service) # Passando no
 
 ## Aplicação Streamlit
 
-st.title("🩺 Gerenciador laboratorial") # Título da aplicação atualizado
+st.title("Converse Com o Seu Banco De Dados") # Título da aplicação atualizado
 
 # Inicializa o histórico de chat no st.session_state se ainda não existir
 if "messages" not in st.session_state:
