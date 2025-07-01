@@ -1,415 +1,161 @@
-# Fazer o Deploy desse agente em um servidor Flask com Google ADK
-from flask import Flask, request, jsonify
-import requests
-import json
-import asyncio
-from google.genai import types
-from google.adk.sessions import InMemorySessionService
-from google.adk.runners import Runner
 from google.adk.agents import Agent
 import google.generativeai as genai
+from datetime import datetime
+import pandas as pd
+import matplotlib.pyplot as plt # Importar Matplotlib
+import seaborn as sns # Importar Seaborn
 import os
 import dotenv
 
 dotenv.load_dotenv()
+
 api_key = os.getenv("GOOGLE_API_KEY")
-genai.configure(api_key=api_key)
 
-app = Flask(__name__)
+genai.configure(api_key=api_key) # osapi vm
+
+idade = [30, 25, 40, 28, 35, 22, 50, 19, 20]
+nome = ["joao", "maria", "carlos", "ana", "pedro", "sofia", "ricardo", "Julio", "Davida"]
+cidade = ["Luanda", "Sumbe", "Benguela", "Lubango", "Luanda", "Benguela", "Cabinda", "Sumbe", "Luanda"]
+profissao = ["Engenheiro", "Designer", "Médico", "Professora", "Arquiteto", "Estudante", "Empresário", "Designer", "Engenheiro"]
+email = ["joao@example.com", "maria@example.com", "carlos@example.com", "ana@example.com", "pedro@example.com", "sofia@example.com", "ricardo@example.com", "Juliocesar@gmail.com", "David@gmail.com"]
+
+# Dados de exemplo para simular um banco de dados
+df = pd.DataFrame(data={"nome": nome, "idade":idade, "cidade": cidade, "profissao":profissao, "email": email})
 
 
-
-def registar_paciente(numero_identificacao:str, nome_completo:str, data_nascimento:str, contacto_telefonico:str, id_sexo:int, email:str, senha:str):
+def get_user_data(nome_usuario: str):
     """
-    Regista um novo paciente na unidade hospitalar.
+    Retorna os dados de um usuário específico do banco de dados.
     Args:
-        numero_identificacao (str): O numero de bilhete do paciente.
-        nome_completo (str): O nome completo do paciente.
-        data_nascimento (str): A data de nascimento do paciente (ex: 1990-01-01).
-        contacto_telefonico (int): O contacto telefonico do paciente.
-        id_sexo (int): O ID do sexo do paciente (1 para masculino, 2 para feminino).
-        email (str): O email do paciente.
-        senha (str): A senha do paciente.
-
+        nome_usuario (str): O nome do usuário a ser consultado (case-insensitive).
     Returns:
-        dict: O JSON da resposta se o login for bem-sucedido e as informações do novo paciente como o id e um dicionário de mais algumas informações uteis, Erro caso contrário.
+        dict: Um dicionário com os dados do usuário ou uma mensagem de erro se não encontrado.
     """
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "email": email,
-        "senha": senha
-    }
+    # Filtra o DataFrame pelo nome do usuário (convertendo para minúsculas para comparação)
+    user_name_lower = df[df.nome.str.lower() == nome_usuario.lower()]
 
-    try:
-        url = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/auth/local/signin"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()  # Levanta um erro para códigos de status HTTP 4xx/5xx
+    if user_name_lower.empty:
+        # Retorna um dicionário de erro se o usuário não for encontrado
+        return {"error": f"Usuário '{nome_usuario}' não encontrado."}
+    else:
+        # Se um usuário for encontrado, pega a primeira (e única) linha
+        # e converte para um dicionário simples
+        return user_name_lower.iloc[0].to_dict()
 
-        #return response.json()
-        resposta_login = response.json()
-        access_token = resposta_login.get("access_token")
-        health_unit_ref = resposta_login.get("health_unit_ref")
-        url_acesso = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/pacients"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-                   }
-        data = {
-            "numero_identificacao": numero_identificacao,
-            "nome_completo": nome_completo,
-            "data_nascimento": data_nascimento,
-            "contacto_telefonico": contacto_telefonico,
-            "id_sexo": id_sexo
-        }
-        requisicao = requests.post(url_acesso, headers=headers, json=data)
-        return {"Status": requisicao.status_code, "Requisição": requisicao.json()}
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP: {http_err}")
-        print(f"Resposta do servidor: {response.text}")
-        return None
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Erro de Conexão: {conn_err}")
-        return None
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Erro de Timeout: {timeout_err}")
-        return None
-    except requests.exceptions.RequestException as req_err:
-        print(f"Um erro inesperado ocorreu: {req_err}")
-        return None
-    
-def criar_agendamento(id_paciente:str, id_tipo_exame:int, data_agendamento:str, hora_agendamento:str, email:str, senha:str):
+def add_user(nome: str, idade: int, email:str, cidade: str, profissao: str):
     """
-    Faz uma requisição de login para a URL fornecida com as credenciais.
-
+    Adiciona um novo usuário ao banco de dados.
     Args:
-        id_paciente (str): O ID do paciente.
-        id_tipo_exame (int): O ID do tipo de exame(ex: 1 para Covide-19, 2 para Hepatite B...).
-        data_agendamento (str): A data do agendamento no formato 'YYYY-MM-DD'.
-        hora_agendamento (str): A hora do agendamento no formato 'HH:MM'.
-
+        nome (str): O nome do novo usuário.
+        idade (int): A idade do novo usuário.
+        cidade (str): A cidade do novo usuário.
+        email (str): O email do novo usuário.
+        profissao (str): A profissão do novo usuário
     Returns:
-        dict: retorna um dicionário com o status da requisição e a resposta JSON, ou None em caso de erro.
+        dict: Um dicionário indicando o status da operação.
     """
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "email": email,
-        "senha": senha
-    }
+    global df # Permite que a função modifique o DataFrame global
 
-    try:
-
-        url = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/auth/local/signin"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()  # Levanta um erro para códigos de status HTTP 4xx/5xx
-
-        #return response.json()
-        resposta_login = response.json()
-        access_token = resposta_login.get("access_token")
-        health_unit_ref = resposta_login.get("health_unit_ref")
-        url_acesso = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/schedulings/set-schedule"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-                   }
-        data = {
-            "id_paciente": id_paciente,
-            "id_unidade_de_saude": health_unit_ref,
-            "exames_paciente": [
-        {
-            "id_tipo_exame": id_tipo_exame,
-            "data_agendamento": data_agendamento,
-            "hora_agendamento": hora_agendamento
-        }]
-
-        }
-        requisicao = requests.post(url_acesso, headers=headers, json=data)
-        return {"Status": requisicao.status_code, "Requisição": requisicao.json()}
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP: {http_err}")
-        print(f"Resposta do servidor: {response.text}")
-        return None
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Erro de Conexão: {conn_err}")
-        return None
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Erro de Timeout: {timeout_err}")
-        return None
-    except requests.exceptions.RequestException as req_err:
-        print(f"Um erro inesperado ocorreu: {req_err}")
-        return None
+    # Verifica se o email já existe no banco de dados (comparação case-insensitive)
+    if email.lower() in df.email.str.lower().values:
+        return {"status": "error", "message": f"Email '{email}' já existe no banco de dados."}
     
-def get_exames(email:str, senha:str):
+    # Cria um novo DataFrame com os dados do usuário (convertendo nome e email para minúsculas)
+    new_user_df = pd.DataFrame([[nome.lower(), idade, email.lower(), cidade, profissao]], 
+                               columns=["nome", "idade", "email", "cidade", "profissao"])
+    
+    # Concatena o novo usuário ao DataFrame global
+    df = pd.concat([df, new_user_df], ignore_index=True)
+    return {"status": "success", "message": f"Usuário '{nome}' adicionado com sucesso!"}
+
+
+def get_time():
+    """Retorna a hora atual."""
+    now = datetime.now()
+    return now.strftime("%H:%M:%S")
+
+def get_weekday():
+    """Retorna o dia da semana atual."""
+    now = datetime.now()
+    return now.strftime("%A")  # Retorna o nome completo do dia da semana, como "Monday", "Tuesday", etc.
+
+
+def get_user_analytics(cidade: str, profissao: str):
     """
-    Faz uma requisição para obter o id correspondente ao tipo de exame, o nome dos exames e descrição dos tipos de exames disponíveis.
-    Essa função é uma ferramenta interna que nunca deve ser exposta ao usuário, apenas utilizada para extrair informações como o id correspondente ao tipo de exame para o preencher a variável id_tipo_exame na função criar_agendamento.
+    Retorna todos os usuários que pertencem à mesma cidade e têm as mesmas profissões.
     Args:
-        email (str): O email do usuário.
-        senha (str): A senha do usuário.
+        cidade (str): Filtra usuários por cidade.
+        profissao (str): Filtra usuários por profissão.
     Returns:
-        dict: retorna um dicionário com o status da requisição e a resposta JSON, ou None em caso de erro.
+        dict: Um dicionário com a lista de usuários ou uma mensagem de erro.
     """
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "email": email,
-        "senha": senha
-    }
+    # Filtra usuários por cidade e profissão (comparação case-insensitive)
+    filtered_users = df[((df.cidade.str.lower() == cidade.lower()) & 
+                         (df.profissao.str.lower() == profissao.lower()))]
 
-    try:
-        url = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/auth/local/signin"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()  # Levanta um erro para códigos de status HTTP 4xx/5xx
+    if filtered_users.empty:
+        return {"users": [], "message": f"Nenhum usuário encontrado na cidade '{cidade}' com a profissão '{profissao}'."}
+    else:
+        # Retorna uma lista de dicionários, onde cada dicionário é um usuário
+        return {"users": filtered_users.to_dict(orient="records")}
 
-        #return response.json()
-        resposta_login = response.json()
-        access_token = resposta_login.get("access_token")
-        health_unit_ref = resposta_login.get("health_unit_ref")
-        url_acesso = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/exam-types"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-                   }
-
-        requisicao = requests.get(url_acesso, headers=headers)
-        return {"Status": requisicao.status_code, "Requisição": requisicao.json()}
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP: {http_err}")
-        print(f"Resposta do servidor: {response.text}")
-        return None
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Erro de Conexão: {conn_err}")
-        return None
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Erro de Timeout: {timeout_err}")
-        return None
-    except requests.exceptions.RequestException as req_err:
-        print(f"Um erro inesperado ocorreu: {req_err}")
-        return None
-    
-
-def get_pacientes(email:str, senha:str):
+def describe():
     """
-    Faz uma requisição para obter os dados pessoais dos pacientes, como nome, id do paciente, sexo, número telefónico e data de nascimento.
-    Essa função é uma ferramenta interna que nunca deve ser exposta ao usuário, apenas utilizada para extrair informações necessárias no momento.
-    
-    Args:
-        email (str): O email do usuário.
-        senha (str): A senha do usuário.
-    
+    Retorna a descrição do meu banco de dados
+    returns:
+        dict: Um dicionário com a descrição estatística do DataFrame.
+
+    """
+    return df.describe().to_json(orient="index")
+
+def generate_age_distribution_chart():
+    """
+    Gera um histograma da distribuição de idades dos usuários e retorna o objeto da figura para plotagem.
     Returns:
-        dict: retorna um dicionário com o status da requisição e a resposta JSON, ou None em caso de erro.
+        matplotlib.figure.Figure or None: O objeto da figura do gráfico se for bem-sucedido, caso contrário, None.
     """
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "email": email,
-        "senha": senha
-    }
-
-    try:
-        url = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/auth/local/signin"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()  # Levanta um erro para códigos de status HTTP 4xx/5xx
-
-        #return response.json()
-        resposta_login = response.json()
-        access_token = resposta_login.get("access_token")
-        health_unit_ref = resposta_login.get("health_unit_ref")
-        url_acesso = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/pacients"
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-                   }
-
-        requisicao = requests.get(url_acesso, headers=headers)
-        return {"Status": requisicao.status_code, "Requisição": requisicao.json()}
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP: {http_err}")
-        print(f"Resposta do servidor: {response.text}")
-        return None
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Erro de Conexão: {conn_err}")
-        return None
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Erro de Timeout: {timeout_err}")
-        return None
-    except requests.exceptions.RequestException as req_err:
-        print(f"Um erro inesperado ocorreu: {req_err}")
+    if df.empty or 'idade' not in df.columns:
+        # Em vez de retornar um dicionário de erro, retornamos None e o chamador (no Streamlit)
+        # pode exibir uma mensagem de erro apropriada.
+        st.error("Dados de usuários ou coluna 'idade' não encontrados para gerar o gráfico.")
         return None
 
-def get_user():
-    """
-    Obtém o link da página de pacientes da plataforma OsapiCare.
-    Essa função deve ser usada para acessar a lista de pacientes registrados na unidade hospitalar.
-    Args:
-        None
-    Returns:
-        str: O link da página de pacientes. 
-    """
-    return {"Link":"https://akin-lis-app-web.vercel.app/akin/patient"}
+    # Cria a figura e os eixos
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Cria o histograma com KDE usando os eixos criados
+    sns.histplot(df['idade'], kde=True, bins=5, color='skyblue', ax=ax)
+
+    # Define os títulos e rótulos para os eixos do gráfico
+    ax.set_title('Distribuição de Idades dos Usuários')
+    ax.set_xlabel('Idade')
+    ax.set_ylabel('Número de Usuários')
+    ax.grid(axis='y', alpha=0.75) # Adiciona grade no eixo Y
+
+    plt.tight_layout() # Ajusta o layout para evitar cortes
     
-
-def editar_exames(id_exame:str, id_agendamento:str, data_agendamento:None, hora_agendamento:None, status:None, status_pagamento:None, email:str, senha:str):
-    """
-    Edita um agendamento de exame existente.
-    Esta função permite atualizar a data, hora, status do agendamento e status do pagamento de um exame agendado.
-    Os parâmetros são usados para modificar as informações do agendamento existente e não são todos obrigatório.
-    O id_agendamento e id_exame são obrigatórios, enquanto os restantes podem ser deixadas como estão se não forem fornecidas novas informações.
-    
-    Args:
-        id_agendamento (str): O ID do agendamento a ser editado.
-        data_agendamento (str): A nova data do agendamento no formato 'YYYY-MM-DD'.
-        hora_agendamento (str): A nova hora do agendamento no formato 'HH:MM'.
-        status (str): O novo status do agendamento (ex: "pendente", "confirmado", "cancelado").
-        status_pagamento (str): O novo status do pagamento (ex: "pendente", "pago", "cancelado").
-        id_exame (int): O ID do tipo de exame a ser editado (ex: 1 para Covide-19, 2 para Hepatite B...).
-        email (str): O email do usuário.
-        senha (str): A senha do usuário.
-    
-    Returns:
-        dict: Retorna um dicionário com o status da requisição e a resposta JSON, ou None em caso de erro.
-    """
-    if not id_agendamento:
-        raise ValueError("O id_agendamento é obrigatório para editar um agendamento.")
-    if not data_agendamento and not hora_agendamento and not status and not status_pagamento:
-        raise ValueError("Pelo menos um dos parâmetros data_agendamento, hora_agendamento, status ou status_pagamento deve ser fornecido para editar o agendamento.")
-
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "email": email,
-        "senha": senha
-    }
-
-    try:
-
-        url = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/auth/local/signin"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()  # Levanta um erro para códigos de status HTTP 4xx/5xx
-
-        #return response.json()
-        resposta_login = response.json()
-        access_token = resposta_login.get("access_token")
-        health_unit_ref = resposta_login.get("health_unit_ref")
-        url_acesso = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/exams/" + id_exame
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-                   }
-        data = {
-            "id_agendamento": id_agendamento,
-            "data_agendamento": data_agendamento,
-            "hora_agendamento": hora_agendamento,
-            "status": status,
-            "status_pagamento": status_pagamento,
-        }
-        requisicao = requests.post(url_acesso, headers=headers, json=data)
-        return {"Status": requisicao.status_code, "Requisição": requisicao.json()}
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP: {http_err}")
-        print(f"Resposta do servidor: {response.text}")
-        return None
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Erro de Conexão: {conn_err}")
-        return None
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Erro de Timeout: {timeout_err}")
-        return None
-    except requests.exceptions.RequestException as req_err:
-        print(f"Um erro inesperado ocorreu: {req_err}")
-        return None
-    
-    
-
-def lista_exames_por_pacientes(id_paciente:str, email:str, senha:str):
-    """
-    Obtém a lista de exames agendados para um paciente específico.
-    Esta função permite consultar os exames agendados para um paciente com base no ID do paciente fornecido.
-    Essa função é útil para verificar os exames agendados, seus status e outras informações relevantes sobre os agendamentos do paciente.
-    Essa função é uma ferramenta interna que nunca deve ser exposta ao usuário, apenas utilizada para extrair informações necessárias no momento.
-    
-    Args:
-        id_paciente (str): O ID do paciente.
-        email (str): O email do usuário.
-        senha (str): A senha do usuário.
-
-    Returns:
-        dict: Retorna um dicionário com o status da requisição e a resposta JSON, ou None em caso de erro.
-    """
-
-    headers = {
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "email": email,
-        "senha": senha
-    }
-
-    try:
-
-        url = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/auth/local/signin"
-        response = requests.post(url, headers=headers, data=json.dumps(payload))
-        response.raise_for_status()  # Levanta um erro para códigos de status HTTP 4xx/5xx
-
-        #return response.json()
-        resposta_login = response.json()
-        access_token = resposta_login.get("access_token")
-        health_unit_ref = resposta_login.get("health_unit_ref")
-        url_acesso = "https://magnetic-buzzard-osapicare-a83d5229.koyeb.app/exams/patient/" + id_paciente
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-                   }
-        requisicao = requests.get(url_acesso, headers=headers)
-        return {"Status": requisicao.status_code, "Requisição": requisicao.json()}
-
-    except requests.exceptions.HTTPError as http_err:
-        print(f"Erro HTTP: {http_err}")
-        print(f"Resposta do servidor: {response.text}")
-        return None
-    except requests.exceptions.ConnectionError as conn_err:
-        print(f"Erro de Conexão: {conn_err}")
-        return None
-    except requests.exceptions.Timeout as timeout_err:
-        print(f"Erro de Timeout: {timeout_err}")
-        return None
-    except requests.exceptions.RequestException as req_err:
-        print(f"Um erro inesperado ocorreu: {req_err}")
-        return None
-
+    # Não salvamos o gráfico, apenas o retornamos
+    return fig
 
 
 def create_adk_components():
     # Inicializa o agente uma vez
     root_agent = Agent(
-        name="osapicare",
-        model="gemini-2.0-flash-exp",
-        description="""
-        Você é um **assistente inteligente e prestativo especializado em gestão de dos processos laboratorias da plataforma OsapiCare, você torna as actividades laboratoriais mas simples e fácil de ser realizado**.
-        Você pode ajudar os usuários a **registar pacientes, agendar exames e obter informações sobre tipos de exames disponíveis**.
-        Você pode usar as seguintes ferramentas:
-        - **registar_paciente**: Registra um novo paciente na unidade hospitalar.
-        - **criar_agendamento**: Cria um agendamento de exame para um paciente.
-        - **get_exames**: Obtém os tipos de exames disponíveis, incluindo o ID, nome e descrição dos exames para ser usado na criação de novo agendamento.
-        - **get_pacientes**: Obtém os dados pessoais dos pacientes, como nome, id do paciente, sexo, número telefónico e data de nascimento, que deveras utilizar quando necessário para extrair alguma informação necessária no momento e nunca mostres aos usuário, essa é uma ferramenta tua interna que nunca deve ser exposta.
-        - **get_user**: Obtém o link da página de pacientes da plataforma OsapiCare, que pode ser usado para acessar a lista de pacientes registrados na unidade hospitalar.
-        - **editar_exames**: Editar um agendamento de exame existente, permitindo atualizar a data, hora, status do agendamento e status do pagamento de um exame agendado.
-        - **lista_exames_por_pacientes**: Obtém a lista de exames agendados para um paciente específico, permitindo consultar os exames agendados, seus status e outras informações relevantes sobre os agendamentos do paciente.
-        Você deve sempre usar a ferramenta **get_exames** para obter o ID do tipo de exame antes de criar um agendamento com a ferramenta **criar_agendamento**.
-        Você deve sempre usar a ferramenta **lsta_exames_por_pacientes** para ver o id e informações relevantes dos exame de um determinado paciente para poder editar um agendamento de exame existente com a ferramenta **editar_exames**, nunca pergunte o id do agendamento ou id do exame ao usuário, sempre use a ferramenta **lista_exames_por_pacientes** para obter essas informações.
-        Você deve sempre usar a ferramenta **get_pacientes** para obter os dados dos pacientes antes de criar um agendamento com a ferramenta **criar_agendamento**, nunca pergunte o id do paciente ao usuário, sempre use a ferramenta **get_pacientes** para obter essas informações.
-        Sempre que o usuário quiser agendar um exame, você deve primeiro obter o ID do tipo de exame usando a ferramenta **get_exames** e depois usar o ID do paciente e o ID do tipo de exame para criar o agendamento com a ferramenta **criar_agendamento**, nunca pessa permissão para usar a função **get_exames** sempre use para obter o id do tipo de exame a partir do nome do tipo de exame que o usuário quiser agendar.
-        Você deve sempre verificar se o paciente já está registrado antes de criar um agendamento, usando a ferramenta **get_pacientes** para obter os dados dos pacientes.
-        Você deve sempre responder de forma clara e concisa, e se não souber a resposta, deve informar o usuário que não tem certeza.
-        Se o usuário fizer uma pergunta que não esteja relacionada com a gestão de processos laboratoriais, você deve informar que não pode ajudar com isso.
-        """, # Sua descrição completa
-        tools=[registar_paciente, criar_agendamento, get_exames, get_pacientes, get_user, editar_exames, lista_exames_por_pacientes],
+        name = "my_tool_agent",
+    #model="gemini-2.0-flash-exp",
+    model= "gemini-1.5-pro",
+    # Combine a descrição e as instruções aqui, ou adicione um novo campo se o ADK suportar explicitamente instruções do sistema
+    description="""
+    Você é um agente que retorna a hora atual, o dia atual da semana, os dados de um usuário, adiciona um novo usuário, mostra a estatística agregada ao usuário, a descrição do meu banco de dados.
+    Você deve usar a ferramenta 'get_time' para obter a hora atual.
+    Você deve usar a ferramenta 'get_weekday' para obter o dia da semana atual.
+    VocÊ deve usar a ferramenta 'get_user_data' para obter os dados de um usuário específico do banco de dados.
+    Você deve usar a ferramenta 'add_user' para adicionar um novo usuário ao banco de dados.
+    Você deve usar a ferramenta 'get_user_analytics' para fazer a filtração da cidade e profissão dos usuários dentro do banco de dados.
+    Você deve usar a ferramenta 'describe' para obter a descrição de como esta o meu banco de dados.
+    Você deve usar a ferramenta 'generate_age_distribution_chart' para gerar um gráfico de histograma.
+    """,
+    tools=[get_time, get_weekday, get_user_data, add_user, get_user_analytics, describe, generate_age_distribution_chart],
     )
     # Inicializa o serviço de sessão uma vez
     session_service = InMemorySessionService() # Mudar para um persistente em produção!
