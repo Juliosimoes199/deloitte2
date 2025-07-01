@@ -138,65 +138,127 @@ def generate_age_distribution_chart():
     return fig
 
 
-def create_adk_components():
-    # Inicializa o agente uma vez
+@st.cache_resource
+def agent_osapi():
     root_agent = Agent(
-        name = "my_tool_agent",
-    #model="gemini-2.0-flash-exp",
-    model= "gemini-1.5-pro",
-    # Combine a descrição e as instruções aqui, ou adicione um novo campo se o ADK suportar explicitamente instruções do sistema
-    description="""
-    Você é um agente que retorna a hora atual, o dia atual da semana, os dados de um usuário, adiciona um novo usuário, mostra a estatística agregada ao usuário, a descrição do meu banco de dados.
-    Você deve usar a ferramenta 'get_time' para obter a hora atual.
-    Você deve usar a ferramenta 'get_weekday' para obter o dia da semana atual.
-    VocÊ deve usar a ferramenta 'get_user_data' para obter os dados de um usuário específico do banco de dados.
-    Você deve usar a ferramenta 'add_user' para adicionar um novo usuário ao banco de dados.
-    Você deve usar a ferramenta 'get_user_analytics' para fazer a filtração da cidade e profissão dos usuários dentro do banco de dados.
-    Você deve usar a ferramenta 'describe' para obter a descrição de como esta o meu banco de dados.
-    Você deve usar a ferramenta 'generate_age_distribution_chart' para gerar um gráfico de histograma.
-    """,
-    tools=[get_time, get_weekday, get_user_data, add_user, get_user_analytics, describe, generate_age_distribution_chart],
+        name = "osapicare",
+    
+        #model="gemini-2.0-flash-exp",
+        model= "gemini-1.5-pro",
+        # Combine a descrição e as instruções aqui, ou adicione um novo campo se o ADK suportar explicitamente instruções do sistema
+        description="""
+        Você é um agente que retorna a hora atual, o dia atual da semana, os dados de um usuário, adiciona um novo usuário, mostra a estatística agregada ao usuário, a descrição do meu banco de dados.
+        Você deve usar a ferramenta 'get_time' para obter a hora atual.
+        Você deve usar a ferramenta 'get_weekday' para obter o dia da semana atual.
+        VocÊ deve usar a ferramenta 'get_user_data' para obter os dados de um usuário específico do banco de dados.
+        Você deve usar a ferramenta 'add_user' para adicionar um novo usuário ao banco de dados.
+        Você deve usar a ferramenta 'get_user_analytics' para fazer a filtração da cidade e profissão dos usuários dentro do banco de dados.
+        Você deve usar a ferramenta 'describe' para obter a descrição de como esta o meu banco de dados.
+        Você deve usar a ferramenta 'generate_age_distribution_chart' para gerar um gráfico de histograma.
+        """,
+        tools=[get_time, get_weekday, get_user_data, add_user, get_user_analytics, describe, generate_age_distribution_chart],  # Certifique-se de que essas ferramentas estejam definidas corretamente
+        # Se houver um campo para instruções específicas do modelo, ele seria algo como 'system_instruction' ou 'model_instructions'
+        # system_instruction="""Siga as diretrizes de segurança e bem-estar do usuário.""" # Exemplo, verifique a documentação do ADK
     )
-    # Inicializa o serviço de sessão uma vez
-    session_service = InMemorySessionService() # Mudar para um persistente em produção!
-    # Inicializa o runner uma vez
+    print(f"Agente '{root_agent.name}'.")
+    return root_agent
+
+root_agent = agent_osapi()
+
+APP_NAME = "OSAPICARE"
+
+
+@st.cache_resource
+def get_session_service():
+    """
+    Cria e retorna o serviço de sessão.
+    O InMemorySessionService gerencia o histórico da conversa automaticamente para a sessão.
+    """
+    return InMemorySessionService()
+
+session_service = get_session_service()
+
+@st.cache_resource
+def get_adk_runner(_agent, _app_name, _session_service):
+    """
+    Cria e retorna o runner do ADK.
+    """
     adk_runner = Runner(
-        agent=root_agent,
-        app_name="OSAPICARE",
-        session_service=session_service
+        agent=_agent,
+        app_name=_app_name,
+        session_service=_session_service
     )
-    return adk_runner, session_service
+    print("ADK Runner criado globalmente.")
+    return adk_runner
 
-# Componentes ADK acessíveis globalmente ou através de um singleton pattern
-# No Flask, você pode inicializá-los quando a aplicação inicia, ou usar o Flask-SQLAlchemy para gerenciar o escopo de requisição.
-# Para um exemplo simples:
-ADK_RUNNER, ADK_SESSION_SERVICE = create_adk_components()
+# Passa o agente de notas para o runner
+adk_runner = get_adk_runner(root_agent, APP_NAME, session_service) # Passando notes_agent
 
-# Em uma rota Flask:
-@app.route('/chat', methods=['POST'])
-async def chat(): # Você precisará de ASGI ou rodar async com threads/subprocessos
-    user_message = request.json.get('message')
-    email = request.json.get('email') # Você precisaria de uma forma de identificar o usuário real
-    senha = request.json.get('senha')
-    user_id = request.json.get("user_id") # Você precisaria de uma forma de identificar o usuário real
-    session_id = request.json.get("session_id") # Você precisaria de uma forma de gerenciar sessões por usuário
-    user_message += f".email do paciente: {email}, senha do paciente: {senha}"
+## Aplicação Streamlit
 
-    # Lógica para criar/obter sessão ADK e rodar o agente
-    existing_session = await ADK_SESSION_SERVICE.get_session(app_name="OSAPICARE", user_id=user_id, session_id=session_id)
-    if not existing_session:
-        await ADK_SESSION_SERVICE.create_session(app_name="OSAPICARE", user_id=user_id, session_id=session_id)
+st.title("🩺 Gerenciador laboratorial") # Título da aplicação atualizado
 
-    new_user_content = types.Content(role='user', parts=[types.Part(text=user_message)])
+# Inicializa o histórico de chat no st.session_state se ainda não existir
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-    response_text = "Agente não produziu uma resposta final."
-    async for event in ADK_RUNNER.run_async(user_id=user_id, session_id=session_id, new_message=new_user_content):
-        if event.is_final_response():
-            if event.content and event.content.parts:
-                response_text = event.content.parts[0].text
-            break
-    return jsonify({"response": response_text})
+# Exibe mensagens anteriores
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
-if __name__ == '__main__':
+# Entrada do usuário
+if user_message := st.chat_input("Olá! Como posso ajudar você a gerenciar suas actividades hoje?"):
+    # Adiciona a mensagem do usuário ao histórico do Streamlit
+    st.session_state.messages.append({"role": "user", "content": user_message})
+    with st.chat_message("user"):
+        st.markdown(user_message)
 
-    app.run(debug=True, host='0.0.0.0', port=5000)  # Ajuste o host e a porta conforme necessário
+    # Define user_id e session_id.
+    user_id = "streamlit_usuario"
+    session_id = "default_streamlit_usuario"
+
+    try:
+        # Garante que a sessão exista no ADK
+        # O InMemorySessionService manterá o estado da sessão.
+        # Não é ideal tentar criar uma sessão que já existe, mas para InMemorySessionService,
+        # get_session pode ser suficiente para verificar a existência.
+        existing_session = asyncio.run(session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id))
+        if not existing_session:
+            asyncio.run(session_service.create_session(app_name=APP_NAME, user_id=user_id, session_id=session_id))
+            print(f"Sessão '{session_id}' criada para '{user_id}'.")
+        else:
+            print(f"Sessão '{session_id}' já existe para '{user_id}'.")
+
+        # A nova mensagem do usuário a ser enviada ao agente
+        new_user_content = types.Content(role='user', parts=[types.Part(text=user_message)])
+
+        async def run_agent_and_get_response(current_user_id, current_session_id, new_content):
+            """
+            Executa o agente e retorna a resposta final.
+            """
+            response_text = "Agente não produziu uma resposta final." 
+            async for event in adk_runner.run_async(
+                user_id=current_user_id,
+                session_id=current_session_id,
+                new_message=new_content,
+            ):
+                if event.is_final_response():
+                    if event.content and event.content.parts:
+                        response_text = event.content.parts[0].text
+                    elif event.actions and event.actions.escalate:
+                        response_text = f"Agente escalou: {event.error_message or 'Sem mensagem específica.'}"
+                    break 
+            return response_text
+
+        # Executa a função assíncrona e obtém o resultado
+        response = asyncio.run(run_agent_and_get_response(user_id, session_id, new_user_content))
+
+        # Adiciona a resposta do agente ao histórico do Streamlit
+        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
+    except Exception as e:
+        st.error(f"Erro ao processar a requisição: {e}")
+        st.session_state.messages.append({"role": "assistant", "content": f"Desculpe, ocorreu um erro: {e}"})
