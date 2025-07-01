@@ -1,17 +1,26 @@
-from google.adk.agents import Agent
+import requests
+import json
 import google.generativeai as genai
+import asyncio
+import streamlit as st
+from google.adk.agents import Agent
+from google.adk.sessions import InMemorySessionService # Para protótipo, usar persistente em prod
+from google.adk.runners import Runner
+from google.genai import types
+import os
+import warnings
+import logging
+import dotenv
 from datetime import datetime
 import pandas as pd
 import matplotlib.pyplot as plt # Importar Matplotlib
-import seaborn as sns # Importar Seaborn
-import os
-import dotenv
-
+import seaborn as sns
+# --- Configurações Iniciais ---
 dotenv.load_dotenv()
-
 api_key = os.getenv("GOOGLE_API_KEY")
 
 genai.configure(api_key=api_key) # osapi vm
+
 
 idade = [30, 25, 40, 28, 35, 22, 50, 19, 20]
 nome = ["joao", "maria", "carlos", "ana", "pedro", "sofia", "ricardo", "Julio", "Davida"]
@@ -142,9 +151,8 @@ def generate_age_distribution_chart():
 def agent_osapi():
     root_agent = Agent(
         name = "osapicare",
-    
         #model="gemini-2.0-flash-exp",
-        model= "gemini-1.5-pro",
+        model= "gemini-2.0-flash-exp",
         # Combine a descrição e as instruções aqui, ou adicione um novo campo se o ADK suportar explicitamente instruções do sistema
         description="""
         Você é um agente que retorna a hora atual, o dia atual da semana, os dados de um usuário, adiciona um novo usuário, mostra a estatística agregada ao usuário, a descrição do meu banco de dados.
@@ -196,7 +204,7 @@ adk_runner = get_adk_runner(root_agent, APP_NAME, session_service) # Passando no
 
 ## Aplicação Streamlit
 
-st.title("Converse Com o Seu Banco De Dados") # Título da aplicação atualizado
+st.title("🩺 Gerenciador laboratorial") # Título da aplicação atualizado
 
 # Inicializa o histórico de chat no st.session_state se ainda não existir
 if "messages" not in st.session_state:
