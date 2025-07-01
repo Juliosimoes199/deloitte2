@@ -137,9 +137,9 @@ def generate_age_distribution_chart():
 
     # Define os títulos e rótulos para os eixos do gráfico
     ax.set_title('Distribuição de Idades dos Usuários')
-    ax.set_xlabel('Idade')
-    ax.set_ylabel('Número de Usuários')
-    ax.grid(axis='y', alpha=0.75) # Adiciona grade no eixo Y
+    #ax.set_xlabel('Idade')
+    #ax.set_ylabel('Número de Usuários')
+    #ax.grid(axis='y', alpha=0.75) # Adiciona grade no eixo Y
 
     plt.tight_layout() # Ajusta o layout para evitar cortes
     
